@@ -138,5 +138,9 @@ def guardar_datos_final():
     except Exception as e:
         # Mostrar el error si ocurre uno (útil para debug)
         return render_template_string(f"<h1>❌ Error al guardar: {str(e)}</h1>"), 500
+        @app.route('/')
+def home():
+    return "<h1>✅ Servidor QR Activo. Usa /cargar_formulario para ver la app.</h1>"
 
 # NOTA: Se eliminó la sección "if __name__ == '__main__':" para que funcione con Gunicorn/Render.
+

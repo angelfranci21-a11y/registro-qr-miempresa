@@ -129,7 +129,8 @@ def guardar_datos_final():
         </html>
         """), 500
 
-# La función home
+# ... (líneas 32-34 correctas) ...
 @app.route('/')
 def home():
+    # Asegúrate de que este 'return' solo tenga 4 espacios de indentación.
     return "<h1>Servidor QR Activo. Usa /cargar_formulario para ver la app.</h1>"

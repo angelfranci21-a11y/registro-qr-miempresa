@@ -2,24 +2,20 @@ from flask import Flask, request, render_template_string
 import gspread 
 import os
 import json
+import tempfile # <-- Nueva librería para solucionar el error de formato del JSON
 
 app = Flask(__name__)
 
+# --- CONFIGURACIÓN DE GOOGLE SHEETS ---
 
-
-
+# Obtenemos la cadena de credenciales con saltos de línea del entorno
+# NO la cargamos como JSON aquí, sino que la guardamos como string.
 creds_json_string = os.environ.get('GOOGLE_CREDENTIALS')
 if not creds_json_string:
-    # Si la variable no existe, el programa lanza un error
     raise Exception("Error: La clave GOOGLE_CREDENTIALS no está configurada en Render.")
     
-
-GOOGLE_CREDS_JSON = json.loads(creds_json_string)
-
-# 2. NOMBRE EXACTO DE TU HOJA DE CÁLCULO EN GOOGLE DRIVE
+# Nombres de la Hoja y Pestaña (ESTO NO CAMBIA)
 SHEET_NAME = "Hoja de cálculo sin título" 
-
-# 3. NOMBRE EXACTO DE LA PESTAÑA DONDE GUARDARÁS LOS DATOS
 WORKSHEET_NAME = "Hoja 1" 
 
 # *******************************************************************
@@ -88,7 +84,13 @@ def cargar_formulario():
 # *******************************************************************
 @app.route('/guardar_datos_final', methods=['POST'])
 def guardar_datos_final():
+    # Creamos un archivo temporal para guardar las credenciales JSON.
+    # Esto soluciona el error 'Cannot convert str to a seekable bit stream'.
+    tmp = tempfile.NamedTemporaryFile(mode='w', delete=False)
     try:
+        tmp.write(creds_json_string)
+        tmp.close()
+        
         # 1. Obtener los datos del formulario 
         orden = request.form['orden']
         codigo = request.form['codigo']
@@ -100,8 +102,8 @@ def guardar_datos_final():
         
         datos_a_guardar = [orden, codigo, descripcion, lote, fecha_ini, cantidad, fecha_fin]
 
-        # 2. Autenticación y Conexión a Google Sheets
-        gc = gspread.service_account_from_dict(GOOGLE_CREDS_JSON)
+        # 2. Autenticación y Conexión a Google Sheets (Lee desde el archivo temporal)
+        gc = gspread.service_account(filename=tmp.name)
         sh = gc.open(SHEET_NAME) 
         
         # 3. Seleccionar la Hoja de Trabajo (pestaña)
@@ -122,7 +124,7 @@ def guardar_datos_final():
         """), 200
 
     except Exception as e:
-        # En caso de error 
+        # En caso de error
         return render_template_string(f"""
         <html>
         <body style="font-family: sans-serif; text-align: center; background-color: #ffcccc;">
@@ -132,8 +134,13 @@ def guardar_datos_final():
         </body>
         </html>
         """), 500
+    finally:
+        # 6. Asegura que el archivo temporal se borre después de usarlo.
+        if os.path.exists(tmp.name):
+            os.unlink(tmp.name)
 
-# La función home, corregida de la IndentationError, debe estar pegada al borde izquierdo
+
+# La función home
 @app.route('/')
 def home():
     return "<h1>Servidor QR Activo. Usa /cargar_formulario para ver la app.</h1>"

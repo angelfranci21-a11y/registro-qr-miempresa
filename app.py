@@ -2,18 +2,36 @@ from flask import Flask, request, render_template_string
 import gspread 
 import os
 import json
-import tempfile # Librería necesaria para la solución del archivo temporal
+import tempfile 
+import os # Necesario para limpiar el archivo temporal
 
 app = Flask(__name__)
 
 # --- CONFIGURACIÓN DE GOOGLE SHEETS ---
 
-# Obtenemos la cadena de credenciales con saltos de línea del entorno
+# 1. Obtenemos la cadena de credenciales y la LIMPIAMOS
 creds_json_string = os.environ.get('GOOGLE_CREDENTIALS')
 if not creds_json_string:
     raise Exception("Error: La clave GOOGLE_CREDENTIALS no está configurada en Render.")
+
+# EL CAMBIO CRÍTICO: Limpieza, Conversión y Reconstrucción del JSON (Soluciona el error de formato)
+# ----------------------------------------------------
+creds_json_string_cleaned = creds_json_string.strip() 
+
+try:
+    # 2. Convertimos la cadena limpia a bytes (encode) y la cargamos a JSON para validación
+    creds_bytes = creds_json_string_cleaned.encode('utf-8') 
+    GOOGLE_CREDS_OBJECT = json.loads(creds_bytes.decode('utf-8'))
     
-# Nombres de la Hoja y Pestaña
+    # 3. Compactamos el objeto JSON de vuelta a un string perfecto para el archivo temporal
+    creds_json_string_final = json.dumps(GOOGLE_CREDS_OBJECT, separators=(',', ':'))
+    
+except Exception as e:
+    # Si la cadena JSON es inválida, falla aquí y no genera el error extraño de gspread
+    raise Exception(f"Error CRÍTICO al procesar la clave JSON: {e}")
+# ----------------------------------------------------
+
+# Nombres de la Hoja y Pestaña (Verificados por ti)
 SHEET_NAME = "Hoja de cálculo sin título" 
 WORKSHEET_NAME = "Hoja 1" 
 
@@ -84,11 +102,10 @@ def cargar_formulario():
 @app.route('/guardar_datos_final', methods=['POST'])
 def guardar_datos_final():
     
-    # Creamos un archivo temporal para guardar las credenciales JSON.
-    # El archivo se usará para la autenticación de gspread.
+    # Creamos un archivo temporal para guardar las credenciales JSON limpias.
     tmp = tempfile.NamedTemporaryFile(mode='w', delete=False)
     try:
-        tmp.write(creds_json_string)
+        tmp.write(creds_json_string_final) # Escribimos el JSON que ya validamos y limpiamos.
         tmp.close()
         
         # 1. Obtener los datos del formulario 

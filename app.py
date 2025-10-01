@@ -2,19 +2,18 @@ from flask import Flask, request, render_template_string
 import gspread 
 import os
 import json
-import tempfile # <-- Nueva librería para solucionar el error de formato del JSON
+import tempfile # Librería necesaria para la solución del archivo temporal
 
 app = Flask(__name__)
 
 # --- CONFIGURACIÓN DE GOOGLE SHEETS ---
 
 # Obtenemos la cadena de credenciales con saltos de línea del entorno
-# NO la cargamos como JSON aquí, sino que la guardamos como string.
 creds_json_string = os.environ.get('GOOGLE_CREDENTIALS')
 if not creds_json_string:
     raise Exception("Error: La clave GOOGLE_CREDENTIALS no está configurada en Render.")
     
-# Nombres de la Hoja y Pestaña (ESTO NO CAMBIA)
+# Nombres de la Hoja y Pestaña
 SHEET_NAME = "Hoja de cálculo sin título" 
 WORKSHEET_NAME = "Hoja 1" 
 
@@ -84,8 +83,9 @@ def cargar_formulario():
 # *******************************************************************
 @app.route('/guardar_datos_final', methods=['POST'])
 def guardar_datos_final():
+    
     # Creamos un archivo temporal para guardar las credenciales JSON.
-    # Esto soluciona el error 'Cannot convert str to a seekable bit stream'.
+    # El archivo se usará para la autenticación de gspread.
     tmp = tempfile.NamedTemporaryFile(mode='w', delete=False)
     try:
         tmp.write(creds_json_string)

@@ -1,21 +1,32 @@
-from flask import Flask, request, render_template_string, redirect, url_for
-import openpyxl
+from flask import Flask, request, render_template_string
+import gspread 
 import os
+import json
 
 app = Flask(__name__)
 
-# --- Configuración ---
-EXCEL_FILE = "datos_qr.xlsx"
-NOMBRE_HOJA_DESTINO = "Hoja 2"
 
-# NOTA: Se eliminó el bloque de inicialización de Excel de la raíz para evitar fallos al inicio del servidor en Render.
+
+
+creds_json_string = os.environ.get('GOOGLE_CREDENTIALS')
+if not creds_json_string:
+    # Si la variable no existe, el programa lanza un error
+    raise Exception("Error: La clave GOOGLE_CREDENTIALS no está configurada en Render.")
+    
+
+GOOGLE_CREDS_JSON = json.loads(creds_json_string)
+
+# 2. NOMBRE EXACTO DE TU HOJA DE CÁLCULO EN GOOGLE DRIVE
+SHEET_NAME = "Hoja de cálculo sin título" 
+
+# 3. NOMBRE EXACTO DE LA PESTAÑA DONDE GUARDARÁS LOS DATOS
+WORKSHEET_NAME = "Hoja 1" 
 
 # *******************************************************************
-# RUTA 1: CARGA EL FORMULARIO (Método GET - Se ejecuta al escanear el QR)
+# RUTA 1: CARGA EL FORMULARIO (Maneja el QR)
 # *******************************************************************
 @app.route('/cargar_formulario', methods=['GET'])
 def cargar_formulario():
-    # Obtener los datos del QR (desde la URL)
     orden = request.args.get('orden', '')
     codigo = request.args.get('codigo', '')
     descripcion = request.args.get('descripcion', '') 
@@ -24,7 +35,6 @@ def cargar_formulario():
     cantidad = request.args.get('cantidad', '')
     fecha_fin = request.args.get('fecha_fin', '')
     
-    # Formulario HTML
     formulario_html = f"""
     <html>
     <head>
@@ -74,12 +84,12 @@ def cargar_formulario():
 
 
 # *******************************************************************
-# RUTA 2: GUARDA LOS DATOS FINALES (Método POST - Guarda en Excel)
+# RUTA 2: GUARDA EN GOOGLE SHEETS
 # *******************************************************************
 @app.route('/guardar_datos_final', methods=['POST'])
 def guardar_datos_final():
     try:
-        # Obtener los datos del formulario
+        # 1. Obtener los datos del formulario 
         orden = request.form['orden']
         codigo = request.form['codigo']
         descripcion = request.form['descripcion'] 
@@ -87,62 +97,43 @@ def guardar_datos_final():
         fecha_ini = request.form['fecha_ini']
         cantidad = request.form['cantidad']
         fecha_fin = request.form['fecha_fin']
-
-        # Validación básica
-        if not all([orden, codigo, descripcion, lote, fecha_ini, cantidad, fecha_fin]):
-            return render_template_string("<h1>❌ Error: Datos incompletos al guardar.</h1>"), 400
-
-        # --- LÓGICA DE CARGA/CREACIÓN SEGURA PARA PRODUCCIÓN ---
-        if not os.path.exists(EXCEL_FILE):
-             # Si el archivo NO existe (Render lo eliminó), lo creamos desde cero
-             wb = openpyxl.Workbook()
-             if 'Sheet' in wb.sheetnames:
-                 del wb['Sheet']
-             ws = wb.create_sheet(NOMBRE_HOJA_DESTINO)
-             # Escribimos los encabezados
-             ws.append(["No. Orden", "Código", "Descripción", "Lote", "Fecha Inicial", "Cantidad Programada", "Fecha Final"])
-             wb.save(EXCEL_FILE) # Guardamos el archivo vacío con encabezados
-             
-        # Cargar el archivo ahora que sabemos que existe
-        wb = openpyxl.load_workbook(EXCEL_FILE)
         
-        # Seleccionar la hoja
-        if NOMBRE_HOJA_DESTINO not in wb.sheetnames:
-            ws = wb.create_sheet(NOMBRE_HOJA_DESTINO)
-            ws.append(["No. Orden", "Código", "Descripción", "Lote", "Fecha Inicial", "Cantidad Programada", "Fecha Final"])
-        else:
-            ws = wb[NOMBRE_HOJA_DESTINO]
-            
-        # 1. Encontrar la próxima fila vacía.
-        next_row = ws.max_row + 1
-        
-        # 2. Los datos a guardar
         datos_a_guardar = [orden, codigo, descripcion, lote, fecha_ini, cantidad, fecha_fin]
-        
-        # 3. Escribir celda por celda (garantiza el inicio en Columna A)
-        for col_idx, valor in enumerate(datos_a_guardar, 1):
-            ws.cell(row=next_row, column=col_idx, value=valor)
-            
-        wb.save(EXCEL_FILE)
 
-        # Respuesta de éxito
+        # 2. Autenticación y Conexión a Google Sheets
+        gc = gspread.service_account_from_dict(GOOGLE_CREDS_JSON)
+        sh = gc.open(SHEET_NAME) 
+        
+        # 3. Seleccionar la Hoja de Trabajo (pestaña)
+        ws = sh.worksheet(WORKSHEET_NAME) 
+
+        # 4. Añadir la Fila 
+        ws.append_row(datos_a_guardar)
+
+        # 5. Respuesta de éxito
         return render_template_string(f"""
         <html>
         <body style="font-family: sans-serif; text-align: center; background-color: #ccffcc;">
-            <h1 style="color: green;">✅ ¡Datos Guardados!</h1>
-            <p>Orden <strong>{orden}</strong> y Lote <strong>{lote}</strong> registrados correctamente en la Fila {next_row}.</p>
+            <h1 style="color: green;">Datos Guardados Correctamente</h1>
+            <p>Orden <strong>{orden}</strong> registrada en Google Sheets.</p>
+            <p><a href="https://docs.google.com/spreadsheets/d/{sh.id}/edit" target="_blank">VER DATOS EN GOOGLE SHEETS</a></p>
         </body>
         </html>
         """), 200
 
     except Exception as e:
-        # Mostrar el error si ocurre uno (útil para debug)
-        return render_template_string(f"<h1>❌ Error al guardar: {str(e)}</h1>"), 500
-        @app.route('/')
+        # En caso de error 
+        return render_template_string(f"""
+        <html>
+        <body style="font-family: sans-serif; text-align: center; background-color: #ffcccc;">
+            <h1 style="color: red;">Error al Guardar los Datos</h1>
+            <p>Verifique los logs de Render para detalles del error.</p>
+            <p>Error: {str(e)}</p>
+        </body>
+        </html>
+        """), 500
+
+# La función home, corregida de la IndentationError, debe estar pegada al borde izquierdo
+@app.route('/')
 def home():
-    return "<h1>✅ Servidor QR Activo. Usa /cargar_formulario para ver la app.</h1>"
-
-# NOTA: Se eliminó la sección "if __name__ == '__main__':" para que funcione con Gunicorn/Render.
-
-
-
+    return "<h1>Servidor QR Activo. Usa /cargar_formulario para ver la app.</h1>"

@@ -1,35 +1,16 @@
 from flask import Flask, request, render_template_string
 import gspread 
 import os
-import json
-import tempfile 
-import os # Necesario para limpiar el archivo temporal
 
 app = Flask(__name__)
 
 # --- CONFIGURACIÓN DE GOOGLE SHEETS ---
 
-# 1. Obtenemos la cadena de credenciales y la LIMPIAMOS
-creds_json_string = os.environ.get('GOOGLE_CREDENTIALS')
-if not creds_json_string:
-    raise Exception("Error: La clave GOOGLE_CREDENTIALS no está configurada en Render.")
-
-# EL CAMBIO CRÍTICO: Limpieza, Conversión y Reconstrucción del JSON (Soluciona el error de formato)
-# ----------------------------------------------------
-creds_json_string_cleaned = creds_json_string.strip() 
-
-try:
-    # 2. Convertimos la cadena limpia a bytes (encode) y la cargamos a JSON para validación
-    creds_bytes = creds_json_string_cleaned.encode('utf-8') 
-    GOOGLE_CREDS_OBJECT = json.loads(creds_bytes.decode('utf-8'))
-    
-    # 3. Compactamos el objeto JSON de vuelta a un string perfecto para el archivo temporal
-    creds_json_string_final = json.dumps(GOOGLE_CREDS_OBJECT, separators=(',', ':'))
-    
-except Exception as e:
-    # Si la cadena JSON es inválida, falla aquí y no genera el error extraño de gspread
-    raise Exception(f"Error CRÍTICO al procesar la clave JSON: {e}")
-# ----------------------------------------------------
+# ESTE ES EL CAMBIO CLAVE: Gspread buscará el archivo en el directorio raíz.
+# Ya NO usamos la variable de entorno.
+CREDENTIALS_FILE = "credentials.json"
+if not os.path.exists(CREDENTIALS_FILE):
+    raise Exception(f"Error: El archivo de credenciales '{CREDENTIALS_FILE}' no se encontró en el servidor. Asegúrese de subirlo a GitHub.")
 
 # Nombres de la Hoja y Pestaña (Verificados por ti)
 SHEET_NAME = "Hoja de cálculo sin título" 
@@ -102,12 +83,7 @@ def cargar_formulario():
 @app.route('/guardar_datos_final', methods=['POST'])
 def guardar_datos_final():
     
-    # Creamos un archivo temporal para guardar las credenciales JSON limpias.
-    tmp = tempfile.NamedTemporaryFile(mode='w', delete=False)
     try:
-        tmp.write(creds_json_string_final) # Escribimos el JSON que ya validamos y limpiamos.
-        tmp.close()
-        
         # 1. Obtener los datos del formulario 
         orden = request.form['orden']
         codigo = request.form['codigo']
@@ -119,8 +95,9 @@ def guardar_datos_final():
         
         datos_a_guardar = [orden, codigo, descripcion, lote, fecha_ini, cantidad, fecha_fin]
 
-        # 2. Autenticación y Conexión a Google Sheets (Lee desde el archivo temporal)
-        gc = gspread.service_account(filename=tmp.name)
+        # 2. Autenticación y Conexión a Google Sheets (Ahora lee el archivo local)
+        # ESTO ES INMUNE A LOS ERRORES DE FORMATO DE VARIABLE DE ENTORNO
+        gc = gspread.service_account(filename=CREDENTIALS_FILE)
         sh = gc.open(SHEET_NAME) 
         
         # 3. Seleccionar la Hoja de Trabajo (pestaña)
@@ -151,11 +128,6 @@ def guardar_datos_final():
         </body>
         </html>
         """), 500
-    finally:
-        # 6. Asegura que el archivo temporal se borre después de usarlo.
-        if os.path.exists(tmp.name):
-            os.unlink(tmp.name)
-
 
 # La función home
 @app.route('/')
